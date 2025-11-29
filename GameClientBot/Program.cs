@@ -1,111 +1,140 @@
-using System.Net.Http.Json;
+using System.Net.WebSockets;
+using System.Text;
+using System.Text.Json;
 
-const string ApiBaseAddress = "https://localhost:7253";
+const string WebSocketAddress = "ws://localhost:5291/ws";
 
-var handler = new HttpClientHandler
+Console.WriteLine("Welcome to the API Game websocket client.");
+Console.Write("Connect as player or spectator? (p/s): ");
+var roleInput = Console.ReadLine()?.Trim().ToLowerInvariant();
+var isPlayer = roleInput == "p" || roleInput == "player";
+
+string? username = null;
+string? team = null;
+
+if (isPlayer)
 {
-    ServerCertificateCustomValidationCallback = HttpClientHandler.DangerousAcceptAnyServerCertificateValidator
-};
+    Console.Write("Enter username: ");
+    username = Console.ReadLine();
 
-using var httpClient = new HttpClient(handler)
+    Console.Write("Enter team code: ");
+    team = Console.ReadLine();
+}
+
+using var socket = new ClientWebSocket();
+
+try
 {
-    BaseAddress = new Uri(ApiBaseAddress)
-};
-
-Console.WriteLine("Welcome to the API Game client.");
-
-var playerId = await JoinAsync(httpClient);
-Console.WriteLine($"Joined successfully. PlayerId: {playerId}");
-
-await PollAndCommandAsync(httpClient, playerId);
-
-static async Task<Guid> JoinAsync(HttpClient httpClient)
+    await socket.ConnectAsync(new Uri(WebSocketAddress), CancellationToken.None);
+}
+catch (Exception ex)
 {
-    while (true)
+    Console.WriteLine($"Failed to connect to server: {ex.Message}");
+    return;
+}
+
+await SendJoinAsync(socket, isPlayer, username, team);
+
+var receiveTask = ReceiveMessagesAsync(socket);
+
+if (isPlayer)
+{
+    var actionTask = SendRandomActionsAsync(socket, username ?? "player");
+    await Task.WhenAny(receiveTask, actionTask);
+}
+else
+{
+    await receiveTask;
+}
+
+static async Task SendJoinAsync(ClientWebSocket socket, bool isPlayer, string? username, string? team)
+{
+    var payload = isPlayer
+        ? new { type = "join", role = "player", username = username ?? string.Empty, team = team ?? string.Empty }
+        : new { type = "join", role = "spectator" };
+
+    await SendStringAsync(socket, JsonSerializer.Serialize(payload));
+}
+
+static async Task ReceiveMessagesAsync(ClientWebSocket socket)
+{
+    var buffer = new byte[4096];
+
+    while (socket.State == WebSocketState.Open)
     {
-        Console.Write("Enter username: ");
-        var username = Console.ReadLine() ?? string.Empty;
+        var builder = new StringBuilder();
 
-        Console.Write("Enter color hex (#RRGGBB): ");
-        var colorHex = Console.ReadLine() ?? string.Empty;
+        WebSocketReceiveResult result;
+        do
+        {
+            result = await socket.ReceiveAsync(buffer, CancellationToken.None);
+            if (result.MessageType == WebSocketMessageType.Close)
+            {
+                await socket.CloseAsync(WebSocketCloseStatus.NormalClosure, "Closing", CancellationToken.None);
+                return;
+            }
+
+            builder.Append(Encoding.UTF8.GetString(buffer.AsSpan(0, result.Count)));
+        }
+        while (!result.EndOfMessage);
+
+        var message = builder.ToString();
 
         try
         {
-            var response = await httpClient.PostAsJsonAsync("/join", new JoinRequest(username, colorHex));
-            if (response.IsSuccessStatusCode)
-            {
-                var joinResponse = await response.Content.ReadFromJsonAsync<JoinResponse>();
-                if (joinResponse?.PlayerId != Guid.Empty)
-                {
-                    return joinResponse!.PlayerId;
-                }
+            using var document = JsonDocument.Parse(message);
+            var root = document.RootElement;
+            var type = root.GetProperty("type").GetString();
 
-                Console.WriteLine("Join succeeded but response was invalid. Retrying...");
-            }
-            else
+            switch (type)
             {
-                var error = await response.Content.ReadAsStringAsync();
-                Console.WriteLine($"Join failed ({(int)response.StatusCode} {response.ReasonPhrase}): {error}");
+                case "castles":
+                    Console.WriteLine($"Received castles: {root.GetProperty("data").GetRawText()}");
+                    break;
+                case "players":
+                    Console.WriteLine($"Players: {root.GetProperty("data").GetArrayLength()} online");
+                    break;
+                case "error":
+                    Console.WriteLine($"Error from server: {root.GetProperty("data").GetString()}");
+                    break;
+                default:
+                    Console.WriteLine($"Received message: {message}");
+                    break;
             }
         }
-        catch (Exception ex)
+        catch (Exception)
         {
-            Console.WriteLine($"Error calling /join: {ex.Message}");
+            Console.WriteLine($"Received raw message: {message}");
         }
-
-        Console.WriteLine("Please try again.\n");
     }
 }
 
-static async Task PollAndCommandAsync(HttpClient httpClient, Guid playerId)
+static async Task SendRandomActionsAsync(ClientWebSocket socket, string username)
 {
-    while (true)
-    {
-        await GetStatsAsync(httpClient);
-        await SendCommandAsync(httpClient, playerId);
-        await Task.Delay(500);
-    }
-}
+    var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(500));
 
-static async Task GetStatsAsync(HttpClient httpClient)
-{
     try
     {
-        var response = await httpClient.GetAsync("/stats");
-        if (response.IsSuccessStatusCode)
+        while (socket.State == WebSocketState.Open && await timer.WaitForNextTickAsync())
         {
-            var stats = await response.Content.ReadAsStringAsync();
-            Console.WriteLine($"Stats: {stats}");
-        }
-        else
-        {
-            Console.WriteLine($"Failed to get stats: {(int)response.StatusCode} {response.ReasonPhrase}");
+            var action = new
+            {
+                type = "action",
+                x = Random.Shared.Next(0, 21),
+                y = Random.Shared.Next(0, 21)
+            };
+
+            await SendStringAsync(socket, JsonSerializer.Serialize(action));
+            Console.WriteLine($"{username} sent action: ({action.x}, {action.y})");
         }
     }
-    catch (Exception ex)
+    catch (OperationCanceledException)
     {
-        Console.WriteLine($"Error getting stats: {ex.Message}");
     }
 }
 
-static async Task SendCommandAsync(HttpClient httpClient, Guid playerId)
+static async Task SendStringAsync(ClientWebSocket socket, string message)
 {
-    try
-    {
-        var actionRequest = new ActionRequest(playerId, "COMMAND");
-        var response = await httpClient.PostAsJsonAsync("/action", actionRequest);
-        if (!response.IsSuccessStatusCode)
-        {
-            var error = await response.Content.ReadAsStringAsync();
-            Console.WriteLine($"Failed to send command: {(int)response.StatusCode} {response.ReasonPhrase} - {error}");
-        }
-    }
-    catch (Exception ex)
-    {
-        Console.WriteLine($"Error sending command: {ex.Message}");
-    }
+    var buffer = Encoding.UTF8.GetBytes(message);
+    await socket.SendAsync(buffer, WebSocketMessageType.Text, true, CancellationToken.None);
 }
-
-record JoinRequest(string Username, string ColorHex);
-record JoinResponse(Guid PlayerId);
-record ActionRequest(Guid PlayerId, string Command);
