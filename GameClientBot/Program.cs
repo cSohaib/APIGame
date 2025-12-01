@@ -98,15 +98,6 @@ static async Task ReceiveMessagesAsync(ClientWebSocket socket)
     }
 }
 
-static async Task SendStringAsync(ClientWebSocket socket, string message)
-{
-    var buffer = Encoding.UTF8.GetBytes(message);
-    await socket.SendAsync(buffer, WebSocketMessageType.Text, true, CancellationToken.None);
-}
-
-record Castle(int x, int y, string team);
-record Player(string username, string team, int x, int y);
-
 static void OnCastles(Castle[] castles)
 {
     Console.WriteLine($"Received castles: {castles.Length}");
@@ -147,3 +138,12 @@ static (int x, int y) ChooseAction()
 {
     return (Random.Shared.Next(0, 21), Random.Shared.Next(0, 21));
 }
+
+static async Task SendStringAsync(ClientWebSocket socket, string message)
+{
+    var buffer = Encoding.UTF8.GetBytes(message);
+    await socket.SendAsync(buffer, WebSocketMessageType.Text, true, CancellationToken.None);
+}
+
+record Castle(int x, int y, string team);
+record Player(string username, string team, int x, int y);
