@@ -65,26 +65,26 @@ static async Task ReceiveMessagesAsync(ClientWebSocket socket)
         {
             using var document = JsonDocument.Parse(message);
             var root = document.RootElement;
-            var type = root.GetProperty("type").GetString();
+            var type = root.GetProperty("Type").GetString();
 
             switch (type)
             {
                 case "castles":
-                    var castles = JsonSerializer.Deserialize<Castle[]>(root.GetProperty("data"));
+                    var castles = JsonSerializer.Deserialize<Castle[]>(root.GetProperty("Data"));
                     if (castles is not null)
                     {
                         OnCastles(castles);
                     }
                     break;
                 case "players":
-                    var players = JsonSerializer.Deserialize<Player[]>(root.GetProperty("data"));
+                    var players = JsonSerializer.Deserialize<Player[]>(root.GetProperty("Data"));
                     if (players is not null)
                     {
                         OnPlayers(players);
                     }
                     break;
                 case "error":
-                    Console.WriteLine($"Error from server: {root.GetProperty("data").GetString()}");
+                    Console.WriteLine($"Error from server: {root.GetProperty("Data").GetString()}");
                     break;
                 default:
                     Console.WriteLine($"Received message: {message}");
@@ -152,5 +152,5 @@ static async Task PlayerBot(Func<int, int, Task> sendAction)
     }
 }
 
-record Castle(int x, int y, string team);
-record Player(string username, string team, int x, int y);
+record Castle(int X, int Y, string Team);
+record Player(string Username, string Yeam, int X, int Y);
