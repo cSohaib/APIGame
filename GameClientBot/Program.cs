@@ -5,21 +5,11 @@ using System.Text.Json;
 const string WebSocketAddress = "ws://localhost:5291/ws";
 
 Console.WriteLine("Welcome to the API Game websocket client.");
-Console.Write("Connect as player or spectator? (p/s): ");
-var roleInput = Console.ReadLine()?.Trim().ToLowerInvariant();
-var isPlayer = roleInput == "p" || roleInput == "player";
+Console.Write("Enter username: ");
+var username = Console.ReadLine();
 
-string? username = null;
-string? team = null;
-
-if (isPlayer)
-{
-    Console.Write("Enter username: ");
-    username = Console.ReadLine();
-
-    Console.Write("Enter team code: ");
-    team = Console.ReadLine();
-}
+Console.Write("Enter team code: ");
+var team = Console.ReadLine();
 
 using var socket = new ClientWebSocket();
 
@@ -33,25 +23,16 @@ catch (Exception ex)
     return;
 }
 
-await SendJoinAsync(socket, isPlayer, username, team);
+await SendJoinAsync(socket, username, team);
 
 var receiveTask = ReceiveMessagesAsync(socket);
+var actionTask = SendRandomActionsAsync(socket, username ?? "player");
 
-if (isPlayer)
-{
-    var actionTask = SendRandomActionsAsync(socket, username ?? "player");
-    await Task.WhenAny(receiveTask, actionTask);
-}
-else
-{
-    await receiveTask;
-}
+await Task.WhenAny(receiveTask, actionTask);
 
-static async Task SendJoinAsync(ClientWebSocket socket, bool isPlayer, string? username, string? team)
+static async Task SendJoinAsync(ClientWebSocket socket, string? username, string? team)
 {
-    var payload = isPlayer
-        ? new { type = "join", role = "player", username = username ?? string.Empty, team = team ?? string.Empty }
-        : new { type = "join", role = "spectator" };
+    var payload = new { type = "join", role = "player", username = username ?? string.Empty, team = team ?? string.Empty };
 
     await SendStringAsync(socket, JsonSerializer.Serialize(payload));
 }
