@@ -26,7 +26,7 @@ catch (Exception ex)
 await SendJoinAsync(socket, username, team);
 
 var receiveTask = ReceiveMessagesAsync(socket);
-var actionTask = PlayerBot(socket, ChooseAction);
+var actionTask = PlayerBot(async (X, Y) => await SendActionAsync(socket, username ?? "player", X, Y));
 
 await Task.WhenAny(receiveTask, actionTask);
 
@@ -98,6 +98,30 @@ static async Task ReceiveMessagesAsync(ClientWebSocket socket)
     }
 }
 
+static async Task SendActionAsync(ClientWebSocket socket, string username, int X, int Y)
+{
+    if (socket.State == WebSocketState.Open)
+    {
+        var action = new
+        {
+            type = "action",
+            x = X,
+            y = Y
+        };
+
+        await SendStringAsync(socket, JsonSerializer.Serialize(action));
+        Console.WriteLine($"{username} sent action: ({action.x}, {action.y})");
+    }
+}
+
+static async Task SendStringAsync(ClientWebSocket socket, string message)
+{
+    var buffer = Encoding.UTF8.GetBytes(message);
+    await socket.SendAsync(buffer, WebSocketMessageType.Text, true, CancellationToken.None);
+}
+
+// ========== Handlers and Bot Logic ==========
+
 static void OnCastles(Castle[] castles)
 {
     Console.WriteLine($"Received castles: {castles.Length}");
@@ -108,41 +132,24 @@ static void OnPlayers(Player[] players)
     Console.WriteLine($"Players online: {players.Length}");
 }
 
-static async Task PlayerBot(ClientWebSocket socket, Func<(int x, int y)> selectAction)
+static async Task PlayerBot(Func<int, int, Task> sendAction)
 {
     var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(500));
 
     try
     {
-        while (socket.State == WebSocketState.Open && await timer.WaitForNextTickAsync())
+        while (await timer.WaitForNextTickAsync())
         {
-            var (x, y) = selectAction();
+            int x = Random.Shared.Next(0, 21);
+            int y = Random.Shared.Next(0, 21);
 
-            var action = new
-            {
-                type = "action",
-                x,
-                y
-            };
-
-            await SendStringAsync(socket, JsonSerializer.Serialize(action));
+            await sendAction(x, y);
             Console.WriteLine($"Sent action: ({x}, {y})");
         }
     }
     catch (OperationCanceledException)
     {
     }
-}
-
-static (int x, int y) ChooseAction()
-{
-    return (Random.Shared.Next(0, 21), Random.Shared.Next(0, 21));
-}
-
-static async Task SendStringAsync(ClientWebSocket socket, string message)
-{
-    var buffer = Encoding.UTF8.GetBytes(message);
-    await socket.SendAsync(buffer, WebSocketMessageType.Text, true, CancellationToken.None);
 }
 
 record Castle(int x, int y, string team);
