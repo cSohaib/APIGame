@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
+using System.Linq;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -18,17 +19,77 @@ app.UseDefaultFiles();
 app.UseStaticFiles();
 app.UseWebSockets();
 
+const int GridColumns = 24;
+const int GridRows = 16;
+
 var castles = new[]
 {
     new Castle(11, 0, "red"),
-    new Castle(11, 14, "blue")
+    new Castle(11, 14, "blue"),
 };
 
-var connections = new ConcurrentDictionary<Guid, ClientConnection>();
-var players = new ConcurrentDictionary<string, PlayerState>(StringComparer.OrdinalIgnoreCase);
-var broadcasterCts = new CancellationTokenSource();
+var rocks = new[]
+{
+    new Rock(0, 7),
+    new Rock(1, 7),
+    new Rock(2, 7),
+    new Rock(3, 7),
+    new Rock(4, 7),
+    new Rock(5, 7),
+    new Rock(6, 4),
+    new Rock(7, 4),
+    new Rock(8, 4),
+    new Rock(9, 4),
+    new Rock(10, 4),
+    new Rock(11, 4),
+    new Rock(12, 4),
+    new Rock(13, 4),
+    new Rock(14, 4),
+    new Rock(15, 4),
+    new Rock(16, 4),
+    new Rock(17, 4),
+    new Rock(18, 7),
+    new Rock(19, 7),
+    new Rock(20, 7),
+    new Rock(21, 7),
+    new Rock(22, 7),
+    new Rock(23, 7),
+    new Rock(0, 8),
+    new Rock(1, 8),
+    new Rock(2, 8),
+    new Rock(3, 8),
+    new Rock(4, 8),
+    new Rock(5, 8),
+    new Rock(6, 11),
+    new Rock(7, 11),
+    new Rock(8, 11),
+    new Rock(9, 11),
+    new Rock(10, 11),
+    new Rock(11, 11),
+    new Rock(12, 11),
+    new Rock(13, 11),
+    new Rock(14, 11),
+    new Rock(15, 11),
+    new Rock(16, 11),
+    new Rock(17, 11),
+    new Rock(18, 8),
+    new Rock(19, 8),
+    new Rock(20, 8),
+    new Rock(21, 8),
+    new Rock(22, 8),
+    new Rock(23, 8),
+};
 
-_ = Task.Run(() => BroadcastPlayersAsync(connections, players, broadcasterCts.Token));
+var staticMap = CreateMap(GridColumns, GridRows, castles, rocks);
+
+var connections = new ConcurrentDictionary<Guid, ClientConnection>();
+var tanks = new ConcurrentDictionary<string, Tank>(StringComparer.OrdinalIgnoreCase);
+var bullets = new List<Bullet>();
+var gameLock = new object();
+var broadcasterCts = new CancellationTokenSource();
+long bulletIdCounter = 0;
+
+_ = Task.Run(() => RunGameLoopAsync(connections, tanks, bullets, castles, staticMap, gameLock, () => Interlocked.Increment(ref bulletIdCounter), broadcasterCts.Token));
 
 app.Map("/ws", async context =>
 {
@@ -46,23 +107,20 @@ app.Map("/ws", async context =>
 
     try
     {
-        if (!await ReceiveJoinAsync(socket, connection, players, context.RequestAborted))
+        if (!await ReceiveJoinAsync(socket, connection, tanks, gameLock, staticMap, context.RequestAborted))
         {
             await socket.CloseAsync(WebSocketCloseStatus.PolicyViolation, "Invalid join request", context.RequestAborted);
             return;
         }
 
-        await SendJsonAsync(socket, new ServerMessage<Castle[]>("castles", castles), context.RequestAborted);
+        await SendJsonAsync(socket, new ServerMessage<GameInitialisation>("initialization", new GameInitialisation(castles, rocks)), context.RequestAborted);
 
-        await ReceiveActionsAsync(connectionId, connection, connections, players, context.RequestAborted);
+        await ReceiveActionsAsync(connectionId, connection, connections, tanks, gameLock, context.RequestAborted);
     }
     finally
     {
         connections.TryRemove(connectionId, out _);
-        if (connection.Username is { } username)
-        {
-            players.TryRemove(username, out _);
-        }
+        RemoveTank(connection.Username, tanks, gameLock);
     }
 });
 
@@ -70,7 +128,7 @@ app.Lifetime.ApplicationStopping.Register(() => broadcasterCts.Cancel());
 
 app.Run();
 
-static async Task<bool> ReceiveJoinAsync(WebSocket socket, ClientConnection connection, ConcurrentDictionary<string, PlayerState> players, CancellationToken cancellationToken)
+static async Task<bool> ReceiveJoinAsync(WebSocket socket, ClientConnection connection, ConcurrentDictionary<string, Tank> tanks, object gameLock, int[,] staticMap, CancellationToken cancellationToken)
 {
     var message = await ReceiveTextMessageAsync(socket, cancellationToken);
     if (message is null)
@@ -114,11 +172,22 @@ static async Task<bool> ReceiveJoinAsync(WebSocket socket, ClientConnection conn
         var username = joinRequest.Username.Trim();
         var team = joinRequest.Team.Trim();
 
-        var state = new PlayerState(username, team, Random.Shared.Next(0, 21), Random.Shared.Next(0, 21));
-        if (!players.TryAdd(username, state))
+        lock (gameLock)
         {
-            await SendJsonAsync(socket, new ServerMessage<string>("error", "Username already exists."), cancellationToken);
-            return false;
+            if (tanks.ContainsKey(username))
+            {
+                await SendJsonAsync(socket, new ServerMessage<string>("error", "Username already exists."), cancellationToken);
+                return false;
+            }
+
+            var tank = CreateTank(username, team, staticMap, tanks.Values);
+            if (tank is null)
+            {
+                await SendJsonAsync(socket, new ServerMessage<string>("error", "No available spawn point."), cancellationToken);
+                return false;
+            }
+
+            tanks[username] = tank;
         }
 
         connection.Username = username;
@@ -128,7 +197,7 @@ static async Task<bool> ReceiveJoinAsync(WebSocket socket, ClientConnection conn
     return true;
 }
 
-static async Task ReceiveActionsAsync(Guid connectionId, ClientConnection connection, ConcurrentDictionary<Guid, ClientConnection> connections, ConcurrentDictionary<string, PlayerState> players, CancellationToken cancellationToken)
+static async Task ReceiveActionsAsync(Guid connectionId, ClientConnection connection, ConcurrentDictionary<Guid, ClientConnection> connections, ConcurrentDictionary<string, Tank> tanks, object gameLock, CancellationToken cancellationToken)
 {
     while (!cancellationToken.IsCancellationRequested && connection.Socket.State == WebSocketState.Open)
     {
@@ -153,8 +222,14 @@ static async Task ReceiveActionsAsync(Guid connectionId, ClientConnection connec
             if (action is not null && string.Equals(action.Type, "action", StringComparison.OrdinalIgnoreCase) &&
                 connection.Username is { } username)
             {
-                players.AddOrUpdate(username, _ => new PlayerState(username, connection.Team ?? string.Empty, action.X, action.Y),
-                    (_, existing) => existing with { X = action.X, Y = action.Y });
+                lock (gameLock)
+                {
+                    if (tanks.TryGetValue(username, out var tank))
+                    {
+                        tank.ActionA = action.A;
+                        tank.ActionB = action.B;
+                    }
+                }
             }
         }
         catch (JsonException)
@@ -169,7 +244,7 @@ static async Task ReceiveActionsAsync(Guid connectionId, ClientConnection connec
     }
 }
 
-static async Task BroadcastPlayersAsync(ConcurrentDictionary<Guid, ClientConnection> connections, ConcurrentDictionary<string, PlayerState> players, CancellationToken cancellationToken)
+static async Task RunGameLoopAsync(ConcurrentDictionary<Guid, ClientConnection> connections, ConcurrentDictionary<string, Tank> tanks, List<Bullet> bullets, Castle[] castles, int[,] staticMap, object gameLock, Func<long> nextBulletId, CancellationToken cancellationToken)
 {
     var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(500));
 
@@ -177,8 +252,13 @@ static async Task BroadcastPlayersAsync(ConcurrentDictionary<Guid, ClientConnect
     {
         while (await timer.WaitForNextTickAsync(cancellationToken))
         {
-            var snapshot = players.Values.ToArray();
-            var payload = new ServerMessage<PlayerState[]>("players", snapshot);
+            GameSnapshot snapshot;
+            lock (gameLock)
+            {
+                snapshot = AdvanceGameState(tanks, bullets, castles, staticMap, nextBulletId);
+            }
+
+            var payload = new ServerMessage<GameSnapshot>("state", snapshot);
 
             foreach (var (id, connection) in connections)
             {
@@ -205,6 +285,298 @@ static async Task BroadcastPlayersAsync(ConcurrentDictionary<Guid, ClientConnect
     finally
     {
         timer.Dispose();
+    }
+}
+
+static GameSnapshot AdvanceGameState(ConcurrentDictionary<string, Tank> tanks, List<Bullet> bullets, Castle[] castles, int[,] staticMap, Func<long> nextBulletId)
+{
+    var explosions = new List<Explosion>();
+    var map = BuildMapWithTanks(staticMap, tanks.Values);
+    var movePlans = new List<MovePlan>();
+
+    foreach (var tank in tanks.Values)
+    {
+        if (tank.IsDestroyed)
+        {
+            continue;
+        }
+
+        ApplyRotations(tank);
+
+        var targetX = tank.X;
+        var targetY = tank.Y;
+
+        if (tank.ActionA == 3)
+        {
+            var (dx, dy) = DirectionDelta(tank.Base);
+            var candidateX = tank.X + dx;
+            var candidateY = tank.Y + dy;
+
+            if (IsInside(candidateX, candidateY, staticMap) && map[candidateX, candidateY] == 0)
+            {
+                targetX = candidateX;
+                targetY = candidateY;
+            }
+        }
+
+        movePlans.Add(new MovePlan(tank, targetX, targetY));
+    }
+
+    var collisions = movePlans.Where(plan => plan.WillMove)
+        .GroupBy(plan => (plan.TargetX, plan.TargetY))
+        .Where(group => group.Count() > 1);
+
+    foreach (var group in collisions)
+    {
+        explosions.Add(new Explosion(group.Key.Item1, group.Key.Item2));
+
+        foreach (var plan in group)
+        {
+            map[plan.Tank.X, plan.Tank.Y] = staticMap[plan.Tank.X, plan.Tank.Y];
+            map[plan.TargetX, plan.TargetY] = staticMap[plan.TargetX, plan.TargetY];
+            plan.Tank.IsDestroyed = true;
+            plan.Tank.DestroyedThisTurn = true;
+        }
+    }
+
+    foreach (var plan in movePlans.Where(plan => !plan.Tank.IsDestroyed && plan.WillMove))
+    {
+        map[plan.Tank.X, plan.Tank.Y] = staticMap[plan.Tank.X, plan.Tank.Y];
+        plan.Tank.X = plan.TargetX;
+        plan.Tank.Y = plan.TargetY;
+        map[plan.Tank.X, plan.Tank.Y] = 2;
+    }
+
+    var newBullets = new List<Bullet>();
+
+    foreach (var tank in tanks.Values)
+    {
+        if (!tank.IsDestroyed && tank.ActionB == 3)
+        {
+            newBullets.Add(new Bullet(nextBulletId(), tank.Username, tank.Team, tank.X, tank.Y, tank.Head));
+        }
+    }
+
+    bullets.AddRange(newBullets);
+
+    var remainingBullets = new List<Bullet>();
+
+    foreach (var bullet in bullets)
+    {
+        var currentBullet = bullet;
+        var destroyed = false;
+
+        for (var step = 0; step < 4; step++)
+        {
+            var (dx, dy) = DirectionDelta(currentBullet.Direction);
+            var targetX = currentBullet.X + dx;
+            var targetY = currentBullet.Y + dy;
+
+            if (!IsInside(targetX, targetY, staticMap))
+            {
+                destroyed = true;
+                break;
+            }
+
+            if (map[targetX, targetY] != 0)
+            {
+                explosions.Add(new Explosion(targetX, targetY));
+                HandleImpact(targetX, targetY, currentBullet, tanks, castles, map, staticMap);
+                destroyed = true;
+                break;
+            }
+
+            currentBullet = currentBullet with { X = targetX, Y = targetY };
+        }
+
+        if (!destroyed)
+        {
+            remainingBullets.Add(currentBullet);
+        }
+    }
+
+    bullets.Clear();
+    bullets.AddRange(remainingBullets);
+
+    foreach (var tank in tanks.Values)
+    {
+        tank.ActionA = 0;
+        tank.ActionB = 0;
+    }
+
+    var tanksToBroadcast = tanks.Values
+        .Where(tank => !tank.IsDestroyed || tank.DestroyedThisTurn)
+        .Select(tank => new TankState(tank.Username, tank.Team, tank.X, tank.Y, tank.Base, tank.Head, tank.Score, tank.IsDestroyed))
+        .ToArray();
+
+    var snapshot = new GameSnapshot(
+        tanksToBroadcast,
+        bullets.ToArray(),
+        explosions.ToArray(),
+        BuildInfoText(tanks.Values, castles)
+    );
+
+    foreach (var tank in tanks.Values.Where(t => t.DestroyedThisTurn))
+    {
+        tank.DestroyedThisTurn = false;
+    }
+
+    return snapshot;
+}
+
+static void HandleImpact(int x, int y, Bullet bullet, ConcurrentDictionary<string, Tank> tanks, Castle[] castles, int[,] map, int[,] staticMap)
+{
+    var hitCastle = castles.FirstOrDefault(castle => x >= castle.X && x < castle.X + 2 && y >= castle.Y && y < castle.Y + 2);
+    if (hitCastle is not null)
+    {
+        hitCastle.Hits++;
+        AwardScore(bullet.Username, tanks);
+        return;
+    }
+
+    var hitTank = tanks.Values.FirstOrDefault(tank => !tank.IsDestroyed && tank.X == x && tank.Y == y);
+    if (hitTank is not null)
+    {
+        hitTank.IsDestroyed = true;
+        hitTank.DestroyedThisTurn = true;
+        AwardScore(bullet.Username, tanks);
+        if (IsInside(hitTank.X, hitTank.Y, map))
+        {
+            map[hitTank.X, hitTank.Y] = staticMap[hitTank.X, hitTank.Y];
+        }
+        return;
+    }
+}
+
+static void AwardScore(string username, ConcurrentDictionary<string, Tank> tanks)
+{
+    if (tanks.TryGetValue(username, out var shooter))
+    {
+        shooter.Score++;
+    }
+}
+
+static string[] BuildInfoText(IEnumerable<Tank> tanks, IEnumerable<Castle> castles)
+{
+    var info = new List<string>();
+
+    foreach (var castle in castles)
+    {
+        info.Add($"Castle {castle.Team}: Hits {castle.Hits}");
+    }
+
+    info.Add("Scores:");
+
+    foreach (var tank in tanks.OrderByDescending(t => t.Score))
+    {
+        var status = tank.IsDestroyed ? " (destroyed)" : string.Empty;
+        info.Add($"{tank.Username} [{tank.Team}] - {tank.Score}{status}");
+    }
+
+    return info.ToArray();
+}
+
+static void ApplyRotations(Tank tank)
+{
+    tank.Base = NormalizeDirection(tank.Base + (tank.ActionA == 1 ? 1 : tank.ActionA == 2 ? -1 : 0));
+    tank.Head = NormalizeDirection(tank.Head + (tank.ActionB == 1 ? 1 : tank.ActionB == 2 ? -1 : 0));
+}
+
+static int NormalizeDirection(int value)
+{
+    var normalized = value % 4;
+    return normalized < 0 ? normalized + 4 : normalized;
+}
+
+static (int dx, int dy) DirectionDelta(int direction) => direction switch
+{
+    0 => (0, -1),
+    1 => (1, 0),
+    2 => (0, 1),
+    _ => (-1, 0)
+};
+
+static bool IsInside(int x, int y, int[,] map) => x >= 0 && y >= 0 && x < map.GetLength(0) && y < map.GetLength(1);
+
+static int[,] CreateMap(int columns, int rows, IEnumerable<Castle> castles, IEnumerable<Rock> rocks)
+{
+    var map = new int[columns, rows];
+
+    foreach (var rock in rocks)
+    {
+        if (IsInside(rock.X, rock.Y, map))
+        {
+            map[rock.X, rock.Y] = 1;
+        }
+    }
+
+    foreach (var castle in castles)
+    {
+        for (var dx = 0; dx < 2; dx++)
+        {
+            for (var dy = 0; dy < 2; dy++)
+            {
+                var x = castle.X + dx;
+                var y = castle.Y + dy;
+                if (IsInside(x, y, map))
+                {
+                    map[x, y] = 1;
+                }
+            }
+        }
+    }
+
+    return map;
+}
+
+static int[,] BuildMapWithTanks(int[,] staticMap, IEnumerable<Tank> tanks)
+{
+    var map = (int[,])staticMap.Clone();
+
+    foreach (var tank in tanks)
+    {
+        if (tank.IsDestroyed)
+        {
+            continue;
+        }
+
+        if (IsInside(tank.X, tank.Y, map))
+        {
+            map[tank.X, tank.Y] = 2;
+        }
+    }
+
+    return map;
+}
+
+static Tank? CreateTank(string username, string team, int[,] staticMap, IEnumerable<Tank> existingTanks)
+{
+    var map = BuildMapWithTanks(staticMap, existingTanks);
+    var y = string.Equals(team, "red", StringComparison.OrdinalIgnoreCase) ? 0 : GridRows - 1;
+    var xCandidates = Enumerable.Range(0, GridColumns).OrderBy(_ => Random.Shared.Next()).ToList();
+
+    foreach (var x in xCandidates)
+    {
+        if (map[x, y] == 0)
+        {
+            var orientation = string.Equals(team, "red", StringComparison.OrdinalIgnoreCase) ? 3 : 0;
+            return new Tank(username, team, x, y, orientation, orientation);
+        }
+    }
+
+    return null;
+}
+
+static void RemoveTank(string? username, ConcurrentDictionary<string, Tank> tanks, object gameLock)
+{
+    if (username is null)
+    {
+        return;
+    }
+
+    lock (gameLock)
+    {
+        tanks.TryRemove(username, out _);
     }
 }
 
@@ -239,11 +611,45 @@ static async Task<string?> ReceiveTextMessageAsync(WebSocket socket, Cancellatio
     return null;
 }
 
-record Castle(int X, int Y, string Team);
-record PlayerState(string Username, string Team, int X, int Y);
+record Castle(int X, int Y, string Team)
+{
+    public int Hits { get; set; }
+}
+
+record Rock(int X, int Y);
+
+record Tank(string Username, string Team, int X, int Y, int Base, int Head)
+{
+    public int Score { get; set; }
+    public bool IsDestroyed { get; set; }
+    public bool DestroyedThisTurn { get; set; }
+    public int ActionA { get; set; }
+    public int ActionB { get; set; }
+}
+
+record TankState(string Username, string Team, int X, int Y, int Base, int Head, int Score, bool IsDestroyed);
+record Bullet(long Id, string Username, string Team, int X, int Y, int Direction);
+record Explosion(int X, int Y);
+record GameInitialisation(IEnumerable<Castle> Castles, IEnumerable<Rock> Rocks);
+record GameSnapshot(TankState[] Tanks, Bullet[] Bullets, Explosion[] Explosions, string[] InfoText);
 record JoinRequest(string Type, string Role, string? Username, string? Team);
-record PlayerAction(string Type, int X, int Y);
+record PlayerAction(string Type, int A, int B);
 record ServerMessage<T>(string Type, T Data);
+
+class MovePlan
+{
+    public MovePlan(Tank tank, int targetX, int targetY)
+    {
+        Tank = tank;
+        TargetX = targetX;
+        TargetY = targetY;
+    }
+
+    public Tank Tank { get; }
+    public int TargetX { get; }
+    public int TargetY { get; }
+    public bool WillMove => Tank.X != TargetX || Tank.Y != TargetY;
+}
 
 class ClientConnection
 {

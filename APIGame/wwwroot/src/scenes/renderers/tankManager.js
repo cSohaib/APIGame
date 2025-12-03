@@ -3,15 +3,15 @@ import { ANIMATION_DURATION_MS, FRAMES, SPRITESHEET_KEY, TILE_SIZE } from '../co
 export class TankManager {
     constructor(scene) {
         this.scene = scene;
-        this.tanksById = new Map();
+        this.tanksByUsername = new Map();
         this.tankTweens = new Map();
     }
 
     render(tanks) {
         const seenIds = new Set();
 
-        tanks.forEach(({ id, x, y, base = 0, head = 0 }) => {
-            const existing = this.tanksById.get(id);
+        tanks.forEach(({ username, x, y, base = 0, head = 0 }) => {
+            const existing = this.tanksByUsername.get(username);
             const isNew = !existing;
             const targetX = x * TILE_SIZE + TILE_SIZE / 2;
             const targetY = y * TILE_SIZE + TILE_SIZE / 2;
@@ -19,13 +19,13 @@ export class TankManager {
             const targetHeadAngle = head * 90;
 
             if (isNew) {
-                this.createTank(id, targetX, targetY, targetBaseAngle, targetHeadAngle);
-                seenIds.add(id);
+                this.createTank(username, targetX, targetY, targetBaseAngle, targetHeadAngle);
+                seenIds.add(username);
                 return;
             }
 
             const { container, baseSprite, headSprite } = existing;
-            this.stopTankTweens(id);
+            this.stopTankTweens(username);
 
             const currentBaseAngle = Phaser.Math.Angle.WrapDegrees(baseSprite.angle);
             const currentHeadAngle = Phaser.Math.Angle.WrapDegrees(headSprite.angle);
@@ -54,21 +54,21 @@ export class TankManager {
                 ease: 'Linear'
             });
 
-            this.tankTweens.set(id, { positionTween, baseTween, headTween });
-            seenIds.add(id);
+            this.tankTweens.set(username, { positionTween, baseTween, headTween });
+            seenIds.add(username);
         });
 
-        [...this.tanksById.keys()].forEach((tankId) => {
-            if (!seenIds.has(tankId)) {
-                const { container } = this.tanksById.get(tankId);
-                this.stopTankTweens(tankId);
+        [...this.tanksByUsername.keys()].forEach((tankUsername) => {
+            if (!seenIds.has(tankUsername)) {
+                const { container } = this.tanksByUsername.get(tankUsername);
+                this.stopTankTweens(tankUsername);
                 container.destroy();
-                this.tanksById.delete(tankId);
+                this.tanksByUsername.delete(tankUsername);
             }
         });
     }
 
-    createTank(id, x, y, baseAngle, headAngle) {
+    createTank(username, x, y, baseAngle, headAngle) {
         const container = this.scene.add.container(0, 0);
         const baseSprite = this.scene.add.image(0, 0, SPRITESHEET_KEY, FRAMES.tankBase).setOrigin(0.5);
         const headSprite = this.scene.add.image(0, 0, SPRITESHEET_KEY, FRAMES.tankHead).setOrigin(0.5);
@@ -78,11 +78,11 @@ export class TankManager {
         baseSprite.setAngle(baseAngle);
         headSprite.setAngle(headAngle);
 
-        this.tanksById.set(id, { container, baseSprite, headSprite });
+        this.tanksByUsername.set(username, { container, baseSprite, headSprite });
     }
 
-    stopTankTweens(tankId) {
-        const tweens = this.tankTweens.get(tankId);
+    stopTankTweens(tankUsername) {
+        const tweens = this.tankTweens.get(tankUsername);
         if (!tweens) {
             return;
         }
@@ -94,6 +94,6 @@ export class TankManager {
             }
         });
 
-        this.tankTweens.delete(tankId);
+        this.tankTweens.delete(tankUsername);
     }
 }
