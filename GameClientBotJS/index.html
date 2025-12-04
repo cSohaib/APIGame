@@ -64,6 +64,7 @@
 
       let socket = null;
       let actionInterval = null;
+      let latestState = null;
 
       function log(message) {
         const timestamp = new Date().toISOString();
@@ -91,21 +92,9 @@
         log(`${username} sent action: (${a}, ${b})`);
       }
 
-      function handleInitialization(data) {
-        const { castles = [], rocks = [] } = data || {};
-        log(`Received castles: ${castles.length}, rocks: ${rocks.length}`);
-      }
-
-      function handleState(data) {
-        const { tanks = [], bullets = [], explosions = [] } = data || {};
-        log(`Tanks: ${tanks.length}, bullets: ${bullets.length}, explosions: ${explosions.length}`);
-      }
-
       function startActionLoop(username) {
-        const choices = [0, 1, 2, 3, 3, 3, 3];
         actionInterval = setInterval(() => {
-          const a = choices[Math.floor(Math.random() * choices.length)];
-          const b = choices[Math.floor(Math.random() * choices.length)];
+          const { a, b } = chooseAction(latestState);
           sendAction(a, b, username || "player");
         }, 500);
       }
@@ -141,7 +130,8 @@
                 handleInitialization(data);
                 break;
               case "state":
-                handleState(data);
+                latestState = data;
+                handleTurn(data);
                 break;
               case "error":
                 log(`Error from server: ${data}`);
@@ -170,6 +160,26 @@
           log(`WebSocket error: ${event.message || event}`);
         });
       });
+
+      // --- Bot logic (modify these functions) ---
+      function handleInitialization(data) {
+        const { castles = [], rocks = [] } = data || {};
+        log(`Received castles: ${castles.length}, rocks: ${rocks.length}`);
+      }
+
+      function handleTurn(data) {
+        const { tanks = [], bullets = [], explosions = [] } = data || {};
+        log(`Tanks: ${tanks.length}, bullets: ${bullets.length}, explosions: ${explosions.length}`);
+      }
+
+      function chooseAction(state) {
+        const choices = [0, 1, 2, 3, 3, 3, 3];
+        const pick = () => choices[Math.floor(Math.random() * choices.length)];
+        const a = pick();
+        const b = pick();
+        return { a, b };
+      }
+      // --- End bot logic ---
     })();
   </script>
 </body>
