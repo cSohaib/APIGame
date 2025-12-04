@@ -7,8 +7,24 @@ record Castle(int X, int Y, string Team)
 
 record Rock(int X, int Y);
 
-record Tank(string Username, string Team, int X, int Y, int Base, int Head)
+class Tank
 {
+    public Tank(string username, string team, int x, int y, int @base, int head)
+    {
+        Username = username;
+        Team = team;
+        X = x;
+        Y = y;
+        Base = @base;
+        Head = head;
+    }
+
+    public string Username { get; }
+    public string Team { get; }
+    public int X { get; set; }
+    public int Y { get; set; }
+    public int Base { get; set; }
+    public int Head { get; set; }
     public int Score { get; set; }
     public bool IsDestroyed { get; set; }
     public bool DestroyedThisTurn { get; set; }

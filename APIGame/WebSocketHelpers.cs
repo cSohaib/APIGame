@@ -48,23 +48,32 @@ static class WebSocketHelpers
 
             var username = joinRequest.Username.Trim();
             var team = joinRequest.Team.Trim();
+            var errorMessage = string.Empty;
 
             lock (runtime.GameLock)
             {
                 if (runtime.Tanks.ContainsKey(username))
                 {
-                    await SendJsonAsync(socket, new ServerMessage<string>("error", "Username already exists."), cancellationToken);
-                    return false;
+                    errorMessage = "Username already exists.";
                 }
-
-                var tank = GameLogic.CreateTank(username, team, runtime.StaticMap, runtime.Tanks.Values);
-                if (tank is null)
+                else
                 {
-                    await SendJsonAsync(socket, new ServerMessage<string>("error", "No available spawn point."), cancellationToken);
-                    return false;
+                    var tank = GameLogic.CreateTank(username, team, runtime.StaticMap, runtime.Tanks.Values);
+                    if (tank is null)
+                    {
+                        errorMessage = "No available spawn point.";
+                    }
+                    else
+                    {
+                        runtime.Tanks[username] = tank;
+                    }
                 }
+            }
 
-                runtime.Tanks[username] = tank;
+            if (!string.IsNullOrEmpty(errorMessage))
+            {
+                await SendJsonAsync(socket, new ServerMessage<string>("error", errorMessage), cancellationToken);
+                return false;
             }
 
             connection.Username = username;
