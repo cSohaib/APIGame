@@ -1,5 +1,5 @@
 import ASSETS from '../assets.js';
-import { DEFAULT_CASTLES, DEFAULT_ROCKS, FRAMES, GRID_COLUMNS, GRID_ROWS, SPRITESHEET_KEY, TILE_SIZE, gridToPixels } from './config.js';
+import { FRAMES, GRID_COLUMNS, GRID_ROWS, SPRITESHEET_KEY, TILE_SIZE, gridToPixels } from './config.js';
 
 export class Terrain {
     constructor(scene) {
@@ -8,10 +8,11 @@ export class Terrain {
         this.groundKey = 'ground-tile';
     }
 
-    build() {
+    build(castles = [], rocks = []) {
+        this.blockedPositions.clear();
         this.createGround();
-        this.createCastles(DEFAULT_CASTLES);
-        this.createRocks(DEFAULT_ROCKS);
+        this.createCastles(castles);
+        this.createRocks(rocks);
     }
 
     createGround() {

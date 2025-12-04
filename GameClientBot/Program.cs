@@ -26,7 +26,7 @@ catch (Exception ex)
 await SendJoinAsync(socket, username, team);
 
 var receiveTask = ReceiveMessagesAsync(socket);
-var actionTask = PlayerBot(async (X, Y) => await SendActionAsync(socket, username ?? "player", X, Y));
+var actionTask = PlayerBot(async (a, b) => await SendActionAsync(socket, username ?? "player", a, b));
 
 await Task.WhenAny(receiveTask, actionTask);
 
@@ -69,18 +69,18 @@ static async Task ReceiveMessagesAsync(ClientWebSocket socket)
 
             switch (type)
             {
-                case "castles":
-                    var castles = JsonSerializer.Deserialize<Castle[]>(root.GetProperty("Data"));
-                    if (castles is not null)
+                case "initialization":
+                    var init = JsonSerializer.Deserialize<GameInitialisation>(root.GetProperty("Data"));
+                    if (init is not null)
                     {
-                        OnCastles(castles);
+                        OnInitialisation(init.Castles, init.Rocks);
                     }
                     break;
-                case "players":
-                    var players = JsonSerializer.Deserialize<Player[]>(root.GetProperty("Data"));
-                    if (players is not null)
+                case "state":
+                    var state = JsonSerializer.Deserialize<GameState>(root.GetProperty("Data"));
+                    if (state is not null)
                     {
-                        OnPlayers(players);
+                        OnTurn(state.Tanks, state.Bullets, state.Explosions);
                     }
                     break;
                 case "error":
@@ -98,19 +98,19 @@ static async Task ReceiveMessagesAsync(ClientWebSocket socket)
     }
 }
 
-static async Task SendActionAsync(ClientWebSocket socket, string username, int X, int Y)
+static async Task SendActionAsync(ClientWebSocket socket, string username, int A, int B)
 {
     if (socket.State == WebSocketState.Open)
     {
         var action = new
         {
             type = "action",
-            x = X,
-            y = Y
+            a = A,
+            b = B
         };
 
         await SendStringAsync(socket, JsonSerializer.Serialize(action));
-        Console.WriteLine($"{username} sent action: ({action.x}, {action.y})");
+        Console.WriteLine($"{username} sent action: ({action.a}, {action.b})");
     }
 }
 
@@ -122,14 +122,14 @@ static async Task SendStringAsync(ClientWebSocket socket, string message)
 
 // ========== Handlers and Bot Logic ==========
 
-static void OnCastles(Castle[] castles)
+static void OnInitialisation(Castle[] castles, Rock[] rocks)
 {
-    Console.WriteLine($"Received castles: {castles.Length}");
+    Console.WriteLine($"Received castles: {castles.Length}, rocks: {rocks.Length}");
 }
 
-static void OnPlayers(Player[] players)
+static void OnTurn(Tank[] tanks, Bullet[] bullets, Explosion[] explosions)
 {
-    Console.WriteLine($"Players online: {players.Length}");
+    Console.WriteLine($"Tanks: {tanks.Length}, bullets: {bullets.Length}, explosions: {explosions.Length}");
 }
 
 static async Task PlayerBot(Func<int, int, Task> sendAction)
@@ -140,11 +140,11 @@ static async Task PlayerBot(Func<int, int, Task> sendAction)
     {
         while (await timer.WaitForNextTickAsync())
         {
-            int x = Random.Shared.Next(0, 21);
-            int y = Random.Shared.Next(0, 21);
+            int a = new[] { 0, 1, 2, 3, 3, 3, 3 }[Random.Shared.Next(7)];
+            int b = new[] { 0, 1, 2, 3, 3, 3, 3 }[Random.Shared.Next(7)];
 
-            await sendAction(x, y);
-            Console.WriteLine($"Sent action: ({x}, {y})");
+            await sendAction(a, b);
+            Console.WriteLine($"Sent action: ({a}, {b})");
         }
     }
     catch (OperationCanceledException)
@@ -152,5 +152,10 @@ static async Task PlayerBot(Func<int, int, Task> sendAction)
     }
 }
 
-record Castle(int X, int Y, string Team);
-record Player(string Username, string Yeam, int X, int Y);
+record Castle(int X, int Y, string Team, int Hits);
+record Rock(int X, int Y);
+record Tank(string Username, string Team, int X, int Y, int Base, int Head, int Score, bool IsDestroyed);
+record Bullet(long Id, string Username, string Team, int X, int Y, int Direction);
+record Explosion(int X, int Y);
+record GameInitialisation(Castle[] Castles, Rock[] Rocks);
+record GameState(Tank[] Tanks, Bullet[] Bullets, Explosion[] Explosions, string[] InfoText);

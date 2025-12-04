@@ -25,62 +25,6 @@ export const PANEL_STYLE = {
 
 export const ANIMATION_DURATION_MS = 500;
 
-export const DEFAULT_CASTLES = [
-    { x: 11, y: 0 },
-    { x: 11, y: 14 }
-];
-
-export const DEFAULT_ROCKS = [
-    { x: 0, y: 7 },
-    { x: 1, y: 7 },
-    { x: 2, y: 7 },
-    { x: 3, y: 7 },
-    { x: 4, y: 7 },
-    { x: 5, y: 7 },
-    { x: 6, y: 4 },
-    { x: 7, y: 4 },
-    { x: 8, y: 4 },
-    { x: 9, y: 4 },
-    { x: 10, y: 4 },
-    { x: 11, y: 4 },
-    { x: 12, y: 4 },
-    { x: 13, y: 4 },
-    { x: 14, y: 4 },
-    { x: 15, y: 4 },
-    { x: 16, y: 4 },
-    { x: 17, y: 4 },
-    { x: 18, y: 7 },
-    { x: 19, y: 7 },
-    { x: 20, y: 7 },
-    { x: 21, y: 7 },
-    { x: 22, y: 7 },
-    { x: 23, y: 7 },
-    { x: 0, y: 8 },
-    { x: 1, y: 8 },
-    { x: 2, y: 8 },
-    { x: 3, y: 8 },
-    { x: 4, y: 8 },
-    { x: 5, y: 8 },
-    { x: 6, y: 11 },
-    { x: 7, y: 11 },
-    { x: 8, y: 11 },
-    { x: 9, y: 11 },
-    { x: 10, y: 11 },
-    { x: 11, y: 11 },
-    { x: 12, y: 11 },
-    { x: 13, y: 11 },
-    { x: 14, y: 11 },
-    { x: 15, y: 11 },
-    { x: 16, y: 11 },
-    { x: 17, y: 11 },
-    { x: 18, y: 8 },
-    { x: 19, y: 8 },
-    { x: 20, y: 8 },
-    { x: 21, y: 8 },
-    { x: 22, y: 8 },
-    { x: 23, y: 8 }
-];
-
 export const gridToPixels = (gridX, gridY) => ({
     x: gridX * TILE_SIZE,
     y: gridY * TILE_SIZE
