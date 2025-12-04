@@ -24,7 +24,7 @@ export class TankManager {
                 return;
             }
 
-            const { container, baseSprite, headSprite } = existing;
+            const { container, baseSprite, headSprite, usernameText } = existing;
             this.stopTankTweens(username);
 
             const currentBaseAngle = Phaser.Math.Angle.WrapDegrees(baseSprite.angle);
@@ -54,6 +54,8 @@ export class TankManager {
                 ease: 'Linear'
             });
 
+            usernameText.setPosition(0, -TILE_SIZE * 0.75);
+
             this.tankTweens.set(username, { positionTween, baseTween, headTween });
             seenIds.add(username);
         });
@@ -72,13 +74,26 @@ export class TankManager {
         const container = this.scene.add.container(0, 0);
         const baseSprite = this.scene.add.image(0, 0, SPRITESHEET_KEY, FRAMES.tankBase).setOrigin(0.5);
         const headSprite = this.scene.add.image(0, 0, SPRITESHEET_KEY, FRAMES.tankHead).setOrigin(0.5);
-        container.add([baseSprite, headSprite]);
+        const usernameText = this.scene.add.text(0, -TILE_SIZE * 0.75, username, {
+            fontFamily: 'Arial',
+            fontSize: '12px',
+            color: '#ffffff',
+            stroke: '#000000',
+            strokeThickness: 2,
+            align: 'center'
+        })
+            .setOrigin(0.5, 0.5)
+            .setAlpha(0.7);
+
+        container.add([baseSprite, headSprite, usernameText]);
 
         container.setPosition(x, y);
         baseSprite.setAngle(baseAngle);
         headSprite.setAngle(headAngle);
 
-        this.tanksByUsername.set(username, { container, baseSprite, headSprite });
+        usernameText.setDepth(1);
+
+        this.tanksByUsername.set(username, { container, baseSprite, headSprite, usernameText });
     }
 
     stopTankTweens(tankUsername) {
