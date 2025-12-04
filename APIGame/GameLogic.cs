@@ -12,6 +12,9 @@ static class GameLogic
     {
         var explosions = new List<Explosion>();
         var map = BuildMapWithTanks(staticMap, tanks.Values);
+
+        var bulletResolution = ResolveBullets(bullets, tanks, castles, staticMap, map, explosions);
+
         var movePlans = new List<MovePlan>();
 
         foreach (var tank in tanks.Values)
@@ -67,12 +70,15 @@ static class GameLogic
             map[plan.Tank.X, plan.Tank.Y] = 2;
         }
 
-        var remainingBullets = ResolveBullets(bullets, tanks, castles, staticMap, map, explosions);
-
         bullets.Clear();
-        bullets.AddRange(remainingBullets);
+        bullets.AddRange(bulletResolution.ActiveBullets);
 
-        bullets.AddRange(CollectNewBullets(tanks.Values, nextBulletId));
+        var newBullets = CollectNewBullets(tanks.Values, nextBulletId).ToList();
+        bullets.AddRange(newBullets);
+
+        var snapshotBullets = bulletResolution.BulletsForSnapshot
+            .Concat(newBullets)
+            .ToArray();
 
         ClearActions(tanks.Values);
 
@@ -83,7 +89,7 @@ static class GameLogic
 
         var snapshot = new GameSnapshot(
             tanksToBroadcast,
-            bullets.ToArray(),
+            snapshotBullets,
             explosions.ToArray(),
             BuildInfoText(tanks.Values, castles)
         );
@@ -160,7 +166,7 @@ static class GameLogic
         return newBullets;
     }
 
-    static List<Bullet> ResolveBullets(
+    static BulletResolution ResolveBullets(
         IEnumerable<Bullet> bullets,
         ConcurrentDictionary<string, Tank> tanks,
         Castle[] castles,
@@ -169,6 +175,7 @@ static class GameLogic
         List<Explosion> explosions)
     {
         var remainingBullets = new List<Bullet>();
+        var snapshotBullets = new List<Bullet>();
 
         foreach (var bullet in bullets)
         {
@@ -191,6 +198,7 @@ static class GameLogic
                 {
                     explosions.Add(new Explosion(targetX, targetY));
                     HandleImpact(targetX, targetY, currentBullet, tanks, castles, map, staticMap);
+                    currentBullet = currentBullet with { X = targetX, Y = targetY };
                     destroyed = true;
                     break;
                 }
@@ -198,13 +206,15 @@ static class GameLogic
                 currentBullet = currentBullet with { X = targetX, Y = targetY };
             }
 
+            snapshotBullets.Add(currentBullet);
+
             if (!destroyed)
             {
                 remainingBullets.Add(currentBullet);
             }
         }
 
-        return remainingBullets;
+        return new BulletResolution(remainingBullets, snapshotBullets);
     }
 
     static void ClearActions(IEnumerable<Tank> tanks)
@@ -229,20 +239,26 @@ static class GameLogic
         var hitCastle = castles.FirstOrDefault(castle => x >= castle.X && x < castle.X + 2 && y >= castle.Y && y < castle.Y + 2);
         if (hitCastle is not null)
         {
-            hitCastle.Hits++;
-            AwardScore(bullet.Username, tanks);
+            if (!string.Equals(hitCastle.Team, bullet.Team, StringComparison.OrdinalIgnoreCase))
+            {
+                hitCastle.Hits++;
+                AwardScore(bullet.Username, tanks);
+            }
             return;
         }
 
         var hitTank = tanks.Values.FirstOrDefault(tank => !tank.IsDestroyed && tank.X == x && tank.Y == y);
         if (hitTank is not null)
         {
-            hitTank.IsDestroyed = true;
-            hitTank.DestroyedThisTurn = true;
-            AwardScore(bullet.Username, tanks);
-            if (IsInside(hitTank.X, hitTank.Y, map))
+            if (!string.Equals(hitTank.Team, bullet.Team, StringComparison.OrdinalIgnoreCase))
             {
-                map[hitTank.X, hitTank.Y] = staticMap[hitTank.X, hitTank.Y];
+                hitTank.IsDestroyed = true;
+                hitTank.DestroyedThisTurn = true;
+                AwardScore(bullet.Username, tanks);
+                if (IsInside(hitTank.X, hitTank.Y, map))
+                {
+                    map[hitTank.X, hitTank.Y] = staticMap[hitTank.X, hitTank.Y];
+                }
             }
         }
     }

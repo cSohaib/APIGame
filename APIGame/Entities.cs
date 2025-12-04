@@ -35,6 +35,7 @@ class Tank
 record TankState(string Username, string Team, int X, int Y, int Base, int Head, int Score, bool IsDestroyed);
 record Bullet(long Id, string Username, string Team, int X, int Y, int Direction);
 record Explosion(int X, int Y);
+record BulletResolution(List<Bullet> ActiveBullets, List<Bullet> BulletsForSnapshot);
 record GameInitialisation(IEnumerable<Castle> Castles, IEnumerable<Rock> Rocks);
 record GameSnapshot(TankState[] Tanks, Bullet[] Bullets, Explosion[] Explosions, string[] InfoText);
 record JoinRequest(string Type, string Role, string? Username, string? Team);
