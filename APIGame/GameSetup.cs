@@ -6,8 +6,8 @@ static class GameSetup
 
     public static Castle[] CreateCastles() => new[]
     {
-        new Castle(11, 0, "red"),
-        new Castle(11, 14, "blue"),
+        new Castle(GridColumns / 2 - 1, 0, "red"),
+        new Castle(GridColumns / 2 - 1, GridRows - 2, "blue"),
     };
 
     public static Rock[] CreateRocks() => new[]
