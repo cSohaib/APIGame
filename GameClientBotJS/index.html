@@ -63,7 +63,6 @@
       const teamInput = document.getElementById("team");
 
       let socket = null;
-      let actionInterval = null;
       let latestState = null;
 
       function log(message) {
@@ -92,13 +91,6 @@
         log(`${username} sent action: (${a}, ${b})`);
       }
 
-      function startActionLoop(username) {
-        actionInterval = setInterval(() => {
-          const { a, b } = chooseAction(latestState);
-          sendAction(a, b, username || "player");
-        }, 500);
-      }
-
       runBtn.addEventListener("click", () => {
         if (socket && socket.readyState === WebSocket.OPEN) {
           log("Bot is already running.");
@@ -113,7 +105,6 @@
         socket.addEventListener("open", () => {
           log(`Connected to ${WebSocketAddress}`);
           sendJoin(username, team);
-          startActionLoop(username);
           runBtn.disabled = true;
           usernameInput.disabled = true;
           teamInput.disabled = true;
@@ -147,10 +138,6 @@
 
         socket.addEventListener("close", () => {
           log("Connection closed.");
-          if (actionInterval) {
-            clearInterval(actionInterval);
-            actionInterval = null;
-          }
           runBtn.disabled = false;
           usernameInput.disabled = false;
           teamInput.disabled = false;
@@ -170,6 +157,9 @@
       function handleTurn(data) {
         const { tanks = [], bullets = [], explosions = [] } = data || {};
         log(`Tanks: ${tanks.length}, bullets: ${bullets.length}, explosions: ${explosions.length}`);
+
+        const { a, b } = chooseAction(data);
+        sendAction(a, b, usernameInput.value.trim() || "player");
       }
 
       function chooseAction(state) {
