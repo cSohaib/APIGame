@@ -140,8 +140,8 @@ static async Task PlayerBot(Func<int, int, Task> sendAction)
     {
         while (await timer.WaitForNextTickAsync())
         {
-            int a = Random.Shared.Next(0, 4);
-            int b = Random.Shared.Next(0, 4);
+            int a = new[] { 0, 1, 2, 3, 3, 3, 3 }[Random.Shared.Next(7)];
+            int b = new[] { 0, 1, 2, 3, 3, 3, 3 }[Random.Shared.Next(7)];
 
             await sendAction(a, b);
             Console.WriteLine($"Sent action: ({a}, {b})");
