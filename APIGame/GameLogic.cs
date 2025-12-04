@@ -67,12 +67,12 @@ static class GameLogic
             map[plan.Tank.X, plan.Tank.Y] = 2;
         }
 
-        bullets.AddRange(CollectNewBullets(tanks.Values, nextBulletId));
-
         var remainingBullets = ResolveBullets(bullets, tanks, castles, staticMap, map, explosions);
 
         bullets.Clear();
         bullets.AddRange(remainingBullets);
+
+        bullets.AddRange(CollectNewBullets(tanks.Values, nextBulletId));
 
         ClearActions(tanks.Values);
 
