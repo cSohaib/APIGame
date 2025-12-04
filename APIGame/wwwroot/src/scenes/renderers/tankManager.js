@@ -75,14 +75,14 @@ export class TankManager {
         const baseSprite = this.scene.add.image(0, 0, SPRITESHEET_KEY, FRAMES.tankBase).setOrigin(0.5);
         const headSprite = this.scene.add.image(0, 0, SPRITESHEET_KEY, FRAMES.tankHead).setOrigin(0.5);
         const usernameText = this.scene.add.text(0, -TILE_SIZE * 0.75, username, {
-            fontFamily: 'Arial',
-            fontSize: '12px',
-            color: '#ffffff',
-            stroke: '#000000',
-            strokeThickness: 2,
-            align: 'center'
-        })
-            .setOrigin(0.5, 0.5)
+                fontFamily: 'Arial',
+                fontSize: '18px',
+                color: '#ffffff',
+                stroke: '#000000',
+                strokeThickness: 2,
+                align: 'center'
+            })
+            .setOrigin(0.5, 0)
             .setAlpha(0.7);
 
         container.add([baseSprite, headSprite, usernameText]);
