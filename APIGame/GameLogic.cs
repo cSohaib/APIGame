@@ -47,20 +47,7 @@ static class GameLogic
 
         var collisions = movePlans.Where(plan => plan.WillMove)
             .GroupBy(plan => (plan.TargetX, plan.TargetY))
-            .Where(group => group.Count() > 1);
-
-        foreach (var group in collisions)
-        {
-            explosions.Add(new Explosion(group.Key.Item1, group.Key.Item2));
-
-            foreach (var plan in group)
-            {
-                ResetMapCell(map, staticMap, plan.Tank.X, plan.Tank.Y);
-                ResetMapCell(map, staticMap, plan.TargetX, plan.TargetY);
-                plan.Tank.IsDestroyed = true;
-                plan.Tank.DestroyedThisTurn = true;
-            }
-        }
+            .Where(group => group.Count() > 1).ToList();
 
         foreach (var plan in movePlans.Where(plan => !plan.Tank.IsDestroyed && plan.WillMove))
         {
@@ -68,6 +55,18 @@ static class GameLogic
             plan.Tank.X = plan.TargetX;
             plan.Tank.Y = plan.TargetY;
             map[plan.Tank.X, plan.Tank.Y] = 2;
+        }
+
+        foreach (var group in collisions)
+        {
+            explosions.Add(new Explosion(group.Key.TargetX, group.Key.TargetY));
+            ResetMapCell(map, staticMap, group.Key.TargetX, group.Key.TargetY);
+
+            foreach (var plan in group)
+            {
+                plan.Tank.IsDestroyed = true;
+                plan.Tank.DestroyedThisTurn = true;
+            }
         }
 
         bullets.Clear();
