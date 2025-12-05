@@ -10,6 +10,7 @@ static class GameLogic
         int[,] staticMap,
         Func<long> nextBulletId)
     {
+        // One tick: resolve incoming bullets, apply rotations/movement, then produce the broadcast snapshot.
         var explosions = new List<Explosion>();
         var map = BuildMapWithTanks(staticMap, tanks.Values);
 
