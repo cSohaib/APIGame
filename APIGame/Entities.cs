@@ -28,6 +28,7 @@ class Tank
     public int Score { get; set; }
     public bool IsDestroyed { get; set; }
     public bool DestroyedThisTurn { get; set; }
+    // ActionA controls base rotation/movement; ActionB controls turret rotation/shooting for the current turn.
     public int ActionA { get; set; }
     public int ActionB { get; set; }
 }
