@@ -10,25 +10,25 @@ const int MapHeight = 16;
 const int SimulationDepth = 10;
 const int SimulationIterations = 100;
 
-static Castle[] _castles = Array.Empty<Castle>();
-static Rock[] _rocks = Array.Empty<Rock>();
-static HashSet<(int x, int y)> _staticBlocked = new();
-static string _playerName = string.Empty;
-static string? _playerTeam;
-static ClientWebSocket? _socket;
+Castle[] castles = Array.Empty<Castle>();
+Rock[] rocks = Array.Empty<Rock>();
+HashSet<(int x, int y)> staticBlocked = new();
+string playerName = string.Empty;
+string? playerTeam = null;
+ClientWebSocket? clientSocket;
 
 const string WebSocketAddress = "ws://localhost:5291/ws";
 
 Console.WriteLine("Welcome to the API Game websocket client.");
 Console.Write("Enter username: ");
 var username = Console.ReadLine();
-var playerName = username ?? "player";
+playerName = username ?? "player";
 
 Console.Write("Enter team code: ");
 var team = Console.ReadLine();
 
 using var socket = new ClientWebSocket();
-_socket = socket;
+clientSocket = socket;
 
 try
 {
@@ -40,22 +40,20 @@ catch (Exception ex)
     return;
 }
 
-_playerName = playerName;
-
 await SendJoinAsync(socket, username, team);
 
 var receiveTask = ReceiveMessagesAsync(socket);
 
 await receiveTask;
 
-static async Task SendJoinAsync(ClientWebSocket socket, string? username, string? team)
+async Task SendJoinAsync(ClientWebSocket socket, string? username, string? team)
 {
     var payload = new { type = "join", role = "player", username = username ?? string.Empty, team = team ?? string.Empty };
 
     await SendStringAsync(socket, JsonSerializer.Serialize(payload));
 }
 
-static async Task ReceiveMessagesAsync(ClientWebSocket socket)
+async Task ReceiveMessagesAsync(ClientWebSocket socket)
 {
     var buffer = new byte[4096];
 
@@ -116,7 +114,7 @@ static async Task ReceiveMessagesAsync(ClientWebSocket socket)
     }
 }
 
-static async Task SendActionAsync(ClientWebSocket socket, string username, int A, int B)
+async Task SendActionAsync(ClientWebSocket socket, string username, int A, int B)
 {
     if (socket.State == WebSocketState.Open)
     {
@@ -132,7 +130,7 @@ static async Task SendActionAsync(ClientWebSocket socket, string username, int A
     }
 }
 
-static async Task SendStringAsync(ClientWebSocket socket, string message)
+async Task SendStringAsync(ClientWebSocket socket, string message)
 {
     var buffer = Encoding.UTF8.GetBytes(message);
     await socket.SendAsync(buffer, WebSocketMessageType.Text, true, CancellationToken.None);
@@ -140,42 +138,42 @@ static async Task SendStringAsync(ClientWebSocket socket, string message)
 
 // ========== Handlers and Bot Logic ==========
 
-static void OnInitialisation(Castle[] castles, Rock[] rocks)
+void OnInitialisation(Castle[] newCastles, Rock[] newRocks)
 {
-    Console.WriteLine($"Received castles: {castles.Length}, rocks: {rocks.Length}");
-    _castles = castles;
-    _rocks = rocks;
-    _staticBlocked = BuildStaticBlocked(castles, rocks);
+    Console.WriteLine($"Received castles: {newCastles.Length}, rocks: {newRocks.Length}");
+    castles = newCastles;
+    rocks = newRocks;
+    staticBlocked = BuildStaticBlocked(castles, rocks);
 }
 
-static async Task OnTurn(Tank[] tanks, Bullet[] bullets, Explosion[] explosions)
+async Task OnTurn(Tank[] tanks, Bullet[] bullets, Explosion[] explosions)
 {
-    if (_socket is null)
+    if (clientSocket is null)
     {
         return;
     }
 
     Console.WriteLine($"Tanks: {tanks.Length}, bullets: {bullets.Length}, explosions: {explosions.Length}");
 
-    var myTank = tanks.FirstOrDefault(t => string.Equals(t.Username, _playerName, StringComparison.OrdinalIgnoreCase));
+    var myTank = tanks.FirstOrDefault(t => string.Equals(t.Username, playerName, StringComparison.OrdinalIgnoreCase));
     if (myTank is null)
     {
         return;
     }
 
-    _playerTeam ??= myTank.Team;
-    var enemyCastle = _castles.FirstOrDefault(c => !string.Equals(c.Team, _playerTeam, StringComparison.OrdinalIgnoreCase));
+    playerTeam ??= myTank.Team;
+    var enemyCastle = castles.FirstOrDefault(c => !string.Equals(c.Team, playerTeam, StringComparison.OrdinalIgnoreCase));
     if (enemyCastle is null)
     {
-        await SendActionAsync(_socket, _playerName, 0, 0);
+        await SendActionAsync(clientSocket, playerName, 0, 0);
         return;
     }
 
     var bestAction = ChooseBestAction(myTank, tanks, bullets, enemyCastle);
-    await SendActionAsync(_socket, _playerName, bestAction.a, bestAction.b);
+    await SendActionAsync(clientSocket, playerName, bestAction.a, bestAction.b);
 }
 
-static (int a, int b) ChooseBestAction(Tank myTank, Tank[] allTanks, Bullet[] bullets, Castle enemyCastle)
+(int a, int b) ChooseBestAction(Tank myTank, Tank[] allTanks, Bullet[] bullets, Castle enemyCastle)
 {
     var existingBullets = bullets.Select(b => new SimBullet(b.X, b.Y, b.Direction, b.Team, b.Username)).ToList();
     var otherTanks = allTanks.Where(t => !string.Equals(t.Username, myTank.Username, StringComparison.OrdinalIgnoreCase))
@@ -200,7 +198,7 @@ static (int a, int b) ChooseBestAction(Tank myTank, Tank[] allTanks, Bullet[] bu
     return bestAction;
 }
 
-static (int a, int b)[] GenerateRandomPlan(int length)
+(int a, int b)[] GenerateRandomPlan(int length)
 {
     var plan = new (int a, int b)[length];
 
@@ -212,7 +210,7 @@ static (int a, int b)[] GenerateRandomPlan(int length)
     return plan;
 }
 
-static double SimulatePlan(Tank myTank, List<SimTank> otherTanks, List<SimBullet> bullets, Castle enemyCastle, (int a, int b)[] plan)
+double SimulatePlan(Tank myTank, List<SimTank> otherTanks, List<SimBullet> bullets, Castle enemyCastle, (int a, int b)[] plan)
 {
     var simMyTank = new SimTank(myTank.Username, myTank.Team, myTank.X, myTank.Y, myTank.Base, myTank.Head, myTank.IsDestroyed);
     var simOtherTanks = otherTanks.Select(t => t.Clone()).ToList();
@@ -258,7 +256,7 @@ static double SimulatePlan(Tank myTank, List<SimTank> otherTanks, List<SimBullet
     return score;
 }
 
-static void ApplyAction(SimTank tank, int actionA, int actionB, HashSet<(int x, int y)> blocked, List<SimBullet> bullets)
+void ApplyAction(SimTank tank, int actionA, int actionB, HashSet<(int x, int y)> blocked, List<SimBullet> bullets)
 {
     if (tank.IsDestroyed)
     {
@@ -299,7 +297,7 @@ static void ApplyAction(SimTank tank, int actionA, int actionB, HashSet<(int x, 
     }
 }
 
-static void AttemptMove(SimTank tank, HashSet<(int x, int y)> blocked)
+void AttemptMove(SimTank tank, HashSet<(int x, int y)> blocked)
 {
     var offset = DirectionOffset(tank.Base);
     var newX = tank.X + offset.dx;
@@ -319,7 +317,7 @@ static void AttemptMove(SimTank tank, HashSet<(int x, int y)> blocked)
     tank.Y = newY;
 }
 
-static void ResolveBullets(List<SimBullet> bullets, SimTank myTank, List<SimTank> otherTanks, Castle enemyCastle, ref double score)
+void ResolveBullets(List<SimBullet> bullets, SimTank myTank, List<SimTank> otherTanks, Castle enemyCastle, ref double score)
 {
     foreach (var bullet in bullets.Where(b => b.IsActive))
     {
@@ -333,7 +331,7 @@ static void ResolveBullets(List<SimBullet> bullets, SimTank myTank, List<SimTank
             continue;
         }
 
-        if (_staticBlocked.Contains((newX, newY)))
+        if (staticBlocked.Contains((newX, newY)))
         {
             if (IsInsideCastle(newX, newY, enemyCastle) && !string.Equals(bullet.Team, enemyCastle.Team, StringComparison.OrdinalIgnoreCase))
             {
@@ -374,7 +372,7 @@ static void ResolveBullets(List<SimBullet> bullets, SimTank myTank, List<SimTank
     bullets.RemoveAll(b => !b.IsActive);
 }
 
-static int VerticalDistance(SimTank tank, Castle castle)
+int VerticalDistance(SimTank tank, Castle castle)
 {
     var castleTop = castle.Y;
     var castleBottom = castle.Y + 1;
@@ -392,7 +390,7 @@ static int VerticalDistance(SimTank tank, Castle castle)
     return 0;
 }
 
-static HashSet<(int x, int y)> BuildStaticBlocked(Castle[] castles, Rock[] rocks)
+HashSet<(int x, int y)> BuildStaticBlocked(Castle[] castles, Rock[] rocks)
 {
     var blocked = new HashSet<(int x, int y)>();
 
@@ -412,9 +410,9 @@ static HashSet<(int x, int y)> BuildStaticBlocked(Castle[] castles, Rock[] rocks
     return blocked;
 }
 
-static HashSet<(int x, int y)> BuildBlockedSet(SimTank myTank, List<SimTank> otherTanks)
+HashSet<(int x, int y)> BuildBlockedSet(SimTank myTank, List<SimTank> otherTanks)
 {
-    var blocked = new HashSet<(int x, int y)>(_staticBlocked);
+    var blocked = new HashSet<(int x, int y)>(staticBlocked);
 
     if (!myTank.IsDestroyed)
     {
@@ -429,7 +427,7 @@ static HashSet<(int x, int y)> BuildBlockedSet(SimTank myTank, List<SimTank> oth
     return blocked;
 }
 
-static (int dx, int dy) DirectionOffset(int direction) => direction switch
+(int dx, int dy) DirectionOffset(int direction) => direction switch
 {
     0 => (0, -1),
     1 => (1, 0),
@@ -438,7 +436,7 @@ static (int dx, int dy) DirectionOffset(int direction) => direction switch
     _ => (0, 0)
 };
 
-static (int x, int y)? GetFrontCell(int x, int y, int direction)
+(int x, int y)? GetFrontCell(int x, int y, int direction)
 {
     var offset = DirectionOffset(direction);
     var newX = x + offset.dx;
@@ -452,7 +450,7 @@ static (int x, int y)? GetFrontCell(int x, int y, int direction)
     return (newX, newY);
 }
 
-static bool IsInsideCastle(int x, int y, Castle castle)
+bool IsInsideCastle(int x, int y, Castle castle)
 {
     return x >= castle.X && x <= castle.X + 1 && y >= castle.Y && y <= castle.Y + 1;
 }
