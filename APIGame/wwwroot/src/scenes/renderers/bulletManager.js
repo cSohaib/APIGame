@@ -12,25 +12,28 @@ export class BulletManager {
 
         bullets.forEach(({ id, x, y }) => {
             const existing = this.bulletsById.get(id);
-            const isNew = !existing;
             const targetX = x * TILE_SIZE + TILE_SIZE / 2;
             const targetY = y * TILE_SIZE + TILE_SIZE / 2;
 
-            if (isNew) {
-                const bullet = this.scene.add.circle(targetX, targetY, TILE_SIZE / 8, 0xfff275, 1);
-                bullet.setStrokeStyle(2, 0xffc107, 0.8);
-                bullet.setDepth(1);
-
-                this.bulletsById.set(id, { sprite: bullet });
+            if (!existing) {
+                this.bulletsById.set(id, { lastX: targetX, lastY: targetY });
                 seenIds.add(id);
                 return;
             }
 
-            const { sprite } = existing;
+            const { sprite, lastX, lastY } = existing;
             this.stopBulletTween(id);
 
+            if (!sprite) {
+                const bullet = this.scene.add.circle(lastX, lastY, TILE_SIZE / 8, 0xfff275, 1);
+                bullet.setStrokeStyle(2, 0xffc107, 0.8);
+                bullet.setDepth(1);
+
+                existing.sprite = bullet;
+            }
+
             const tween = this.scene.tweens.add({
-                targets: sprite,
+                targets: existing.sprite,
                 x: targetX,
                 y: targetY,
                 duration: ANIMATION_DURATION_MS,
@@ -38,6 +41,8 @@ export class BulletManager {
             });
 
             this.bulletTweens.set(id, tween);
+            existing.lastX = targetX;
+            existing.lastY = targetY;
             seenIds.add(id);
         });
 
@@ -45,7 +50,9 @@ export class BulletManager {
             if (!seenIds.has(bulletId)) {
                 this.stopBulletTween(bulletId);
                 const { sprite } = this.bulletsById.get(bulletId);
-                sprite.destroy();
+                if (sprite) {
+                    sprite.destroy();
+                }
                 this.bulletsById.delete(bulletId);
             }
         });
